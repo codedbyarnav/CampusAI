@@ -4,12 +4,11 @@ import streamlit as st
 
 from langchain_community.llms import HuggingFaceHub
 from langchain_core.prompts import PromptTemplate
-from langchain.memory import ConversationBufferMemory
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 
 # ---------------- API KEY ----------------
-os.environ["HUGGINGFACEHUB_API_TOKEN"] = "YOUR_API_KEY_HERE"
+os.environ["HUGGINGFACEHUB_API_TOKEN"] = st.secrets["HUGGINGFACEHUB_API_TOKEN"]
 
 # ---------------- PAGE ----------------
 st.set_page_config(page_title="CampusAI Chatbot", page_icon="🎓")
@@ -37,7 +36,7 @@ Question:
 Answer:
 """
 
-# ---------------- LOAD ----------------
+# ---------------- LOAD VECTOR STORE ----------------
 @st.cache_resource
 def load_vectorstore():
     embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
@@ -50,6 +49,7 @@ def load_vectorstore():
 vector_db = load_vectorstore()
 retriever = vector_db.as_retriever(search_kwargs={"k": 2})
 
+# ---------------- MODEL ----------------
 llm = HuggingFaceHub(
     repo_id="google/flan-t5-base",
     model_kwargs={"temperature": 0.2, "max_length": 512}
@@ -57,12 +57,11 @@ llm = HuggingFaceHub(
 
 prompt = PromptTemplate.from_template(PROMPT_TEMPLATE)
 
-memory = ConversationBufferMemory(return_messages=True)
-
-# ---------------- CHAT ----------------
+# ---------------- CHAT MEMORY (MANUAL) ----------------
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
+# ---------------- INPUT ----------------
 user_input = st.chat_input("Ask your question...")
 
 if user_input:
@@ -70,11 +69,12 @@ if user_input:
     docs = retriever.get_relevant_documents(user_input)
     context = "\n\n".join([d.page_content for d in docs])
 
+    # Format history
     history_text = "\n".join(
         [f"User: {c['user']}\nBot: {c['bot']}" for c in st.session_state.chat_history]
     )
 
-    # Create prompt
+    # Final prompt
     final_prompt = prompt.format(
         context=context,
         history=history_text,
