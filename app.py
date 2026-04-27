@@ -20,12 +20,16 @@ VECTOR_STORE_PATH = "vectorstore/db_faiss"
 
 @st.cache_resource
 def load_vectorstore():
-    embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-    return FAISS.load_local(
-        VECTOR_STORE_PATH,
-        embeddings,
-        allow_dangerous_deserialization=True
-    )
+    try:
+        embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+        return FAISS.load_local(
+            VECTOR_STORE_PATH,
+            embeddings,
+            allow_dangerous_deserialization=True
+        )
+    except Exception as e:
+        st.error("❌ Vector store not found. Please check deployment.")
+        st.stop()
 
 vector_db = load_vectorstore()
 retriever = vector_db.as_retriever(search_kwargs={"k": 2})
@@ -57,9 +61,15 @@ Answer:
 user_input = st.chat_input("Ask your question...")
 
 if user_input:
-    # Retrieve docs
-    docs = retriever.get_relevant_documents(user_input)
-    context = "\n\n".join([d.page_content for d in docs])
+    st.markdown(f"🧑‍💻 {user_input}")
+
+    # 🔥 SAFE RETRIEVAL
+    try:
+        docs = list(retriever.invoke(user_input))
+    except Exception:
+        docs = []
+
+    context = "\n\n".join([d.page_content for d in docs]) if docs else "No context found."
 
     # History
     history_text = "\n".join(
@@ -68,21 +78,26 @@ if user_input:
 
     prompt = build_prompt(context, history_text, user_input)
 
-    # 🔥 LLM CALL (FIXED)
-    response = client.text_generation(
-        prompt,
-        model="google/flan-t5-base",
-        max_new_tokens=300
-    )
+    # 🔥 SAFE LLM CALL
+    try:
+        response = client.text_generation(
+            prompt,
+            model="google/flan-t5-base",
+            max_new_tokens=300
+        )
+        cleaned = re.sub(r"<.*?>", "", response).strip()
+    except Exception:
+        cleaned = "⚠️ Error generating response. Try again."
 
-    cleaned = re.sub(r"<.*?>", "", response).strip()
+    st.markdown(f"🤖 {cleaned}")
 
+    # Save history
     st.session_state.chat_history.append({
         "user": user_input,
         "bot": cleaned
     })
 
 # ---------------- DISPLAY ----------------
-for chat in st.session_state.chat_history:
+for chat in st.session_state.chat_history[:-1]:
     st.markdown(f"🧑‍💻 {chat['user']}")
     st.markdown(f"🤖 {chat['bot']}")
