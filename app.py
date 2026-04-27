@@ -27,8 +27,8 @@ def load_vectorstore():
             embeddings,
             allow_dangerous_deserialization=True
         )
-    except Exception:
-        st.error("❌ Vector store not found. Upload vectorstore folder to GitHub.")
+    except Exception as e:
+        st.error(f"❌ Vector store error: {str(e)}")
         st.stop()
 
 vector_db = load_vectorstore()
@@ -46,7 +46,7 @@ You are CampusAI, a student assistant.
 RULES:
 - Answer ONLY using the context.
 - If not found, say: "I don't know based on the provided information."
-- Keep answer short and clear.
+- Keep answers short and clear.
 
 Context:
 {context}
@@ -60,7 +60,7 @@ Question:
 Answer:
 """
 
-# ---------------- DISPLAY OLD CHAT ----------------
+# ---------------- DISPLAY CHAT ----------------
 for chat in st.session_state.chat_history:
     st.markdown(f"🧑‍💻 {chat['user']}")
     st.markdown(f"🤖 {chat['bot']}")
@@ -73,10 +73,11 @@ if user_input:
 
     # -------- RETRIEVAL --------
     try:
-        docs = retriever.invoke(user_input)
-        context = "\n\n".join([d.page_content for d in docs])
-    except Exception:
+        docs = list(retriever.invoke(user_input))  # ✅ FIXED
+        context = "\n\n".join([d.page_content for d in docs]) if docs else "No context found."
+    except Exception as e:
         context = "No context found."
+        st.error(f"Retrieval error: {str(e)}")
 
     # -------- HISTORY --------
     history_text = "\n".join(
@@ -85,20 +86,19 @@ if user_input:
 
     prompt = build_prompt(context, history_text, user_input)
 
-    # -------- LLM (FIXED MODEL) --------
+    # -------- LLM (FINAL FIX) --------
     try:
-        response = client.chat_completion(
-            model="HuggingFaceH4/zephyr-7b-beta",  # ✅ MUCH MORE STABLE
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=300
+        response = client.text_generation(
+            prompt,
+            model="mistralai/Mistral-7B-Instruct-v0.2",  # ✅ STABLE MODEL
+            max_new_tokens=300
         )
 
-        answer = response.choices[0].message["content"]
-
-        cleaned = re.sub(r"<.*?>", "", answer).strip()
+        cleaned = re.sub(r"<.*?>", "", response).strip()
 
     except Exception as e:
-        cleaned = f"⚠️ Error: {str(e)}"
+        st.error(f"🔥 LLM Error: {str(e)}")
+        cleaned = "⚠️ Failed to generate response"
 
     st.markdown(f"🤖 {cleaned}")
 
