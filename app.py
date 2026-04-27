@@ -1,59 +1,50 @@
 import re
+import os
 import streamlit as st
-from langchain_huggingface import HuggingFaceEndpoint, HuggingFaceEmbeddings
-from langchain.prompts import PromptTemplate
+
+from langchain_community.llms import HuggingFaceHub
+from langchain_core.prompts import PromptTemplate
 from langchain.chains import LLMChain
 from langchain.memory import ConversationBufferMemory
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 
+# ---------------- PAGE CONFIG ----------------
 st.set_page_config(
     page_title="CampusAI Chatbot",
     page_icon="🎓",
     layout="wide"
 )
 
-# ---------- CUSTOM CSS ----------
-st.markdown("""
-<style>
-body { background-color: #0e1117; }
-.block-container { padding-top: 2rem; }
-h1 { text-align: center; font-weight: 700; }
-.chat-message { padding: 12px; border-radius: 10px; margin-bottom: 10px; }
-.user-msg { background-color: #1f77b4; color: white; }
-.bot-msg { background-color: #262730; color: white; }
-footer { visibility: hidden; }
-</style>
-""", unsafe_allow_html=True)
+# ---------------- API KEY ----------------
+os.environ["HUGGINGFACEHUB_API_TOKEN"] = "YOUR_API_KEY_HERE"
 
-# ---------- HEADER ----------
-st.markdown("<h1>🎓 CampusAI – Intelligent Student Query Assistant</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align:center; color:gray;'>Ask anything about your university</p>", unsafe_allow_html=True)
+# ---------------- UI ----------------
+st.markdown("<h1 style='text-align:center;'>🎓 CampusAI – Student Assistant</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align:center;'>Ask anything about your university</p>", unsafe_allow_html=True)
 st.divider()
 
-# ---------- SIDEBAR ----------
+# ---------------- SIDEBAR ----------------
 with st.sidebar:
-    st.header("📌 About")
+    st.header("About")
     st.write("""
-    This AI helps students with:
-    - Courses
+    AI chatbot for:
     - Admissions
-    - Campus details
-    - General queries
+    - Courses
+    - Campus queries
     """)
     st.divider()
-    st.write("⚙️ Model: Mistral-7B")
-    st.write("📚 Mode: RAG (Context-based)")
+    st.write("Model: flan-t5-base")
+    st.write("Mode: RAG")
 
-# ---------- CONSTANTS ----------
+# ---------------- CONSTANTS ----------------
 VECTOR_STORE_PATH = "vectorstore/db_faiss"
 
 PROMPT_TEMPLATE = """
-You are a Student Query Assistant.
+Answer ONLY using the context.
 
-RULES:
-- Answer ONLY from the provided context.
-- If not found, say: "I don't know based on the provided information."
-- Be clear and concise.
+If not found, say:
+"I don't know based on the provided information."
 
 Context:
 {context}
@@ -67,7 +58,7 @@ Question:
 Answer:
 """
 
-# ---------- LOADERS ----------
+# ---------------- LOADERS ----------------
 @st.cache_resource
 def load_embeddings():
     return HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
@@ -81,13 +72,11 @@ def load_vectorstore():
         allow_dangerous_deserialization=True
     )
 
-# ---------- CHAIN ----------
+# ---------------- CHAIN ----------------
 def get_chain():
-    llm = HuggingFaceEndpoint(
-        repo_id="mistralai/Mistral-7B-Instruct-v0.2",
-        temperature=0.2,
-        max_new_tokens=512,
-        huggingfacehub_api_token=st.secrets["HUGGINGFACEHUB_API_TOKEN"]
+    llm = HuggingFaceHub(
+        repo_id="google/flan-t5-base",
+        model_kwargs={"temperature": 0.2, "max_length": 512}
     )
 
     memory = ConversationBufferMemory(
@@ -112,22 +101,20 @@ def get_chain():
 
     return RAGChain(llm=llm, prompt=prompt, memory=memory)
 
-# ---------- INIT ----------
+# ---------------- INIT ----------------
 if "chain" not in st.session_state:
     st.session_state.chain = get_chain()
 
-# ---------- CHAT DISPLAY ----------
+# ---------------- DISPLAY ----------------
 for msg in st.session_state.chain.memory.chat_memory.messages:
-    if msg.type == "human":
-        st.markdown(f"<div class='chat-message user-msg'>🧑‍💻 {msg.content}</div>", unsafe_allow_html=True)
-    else:
-        st.markdown(f"<div class='chat-message bot-msg'>🤖 {msg.content}</div>", unsafe_allow_html=True)
+    role = "🧑‍💻" if msg.type == "human" else "🤖"
+    st.markdown(f"{role} {msg.content}")
 
-# ---------- INPUT ----------
-user_input = st.chat_input("Ask your question...")
+# ---------------- INPUT ----------------
+user_input = st.chat_input("Ask something...")
 
 if user_input:
-    st.markdown(f"<div class='chat-message user-msg'>🧑‍💻 {user_input}</div>", unsafe_allow_html=True)
+    st.markdown(f"🧑‍💻 {user_input}")
 
     result = st.session_state.chain.invoke({"input": user_input})
 
@@ -135,4 +122,4 @@ if user_input:
     cleaned = re.sub(r"<.*?>", "", raw)
     final = cleaned.strip()
 
-    st.markdown(f"<div class='chat-message bot-msg'>🤖 {final}</div>", unsafe_allow_html=True)
+    st.markdown(f"🤖 {final}")
