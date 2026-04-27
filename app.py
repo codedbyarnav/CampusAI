@@ -27,8 +27,8 @@ def load_vectorstore():
             embeddings,
             allow_dangerous_deserialization=True
         )
-    except Exception as e:
-        st.error("❌ Vector store not found. Please check deployment.")
+    except Exception:
+        st.error("❌ Vector store not found. Upload vectorstore folder to GitHub.")
         st.stop()
 
 vector_db = load_vectorstore()
@@ -41,9 +41,12 @@ if "chat_history" not in st.session_state:
 # ---------------- PROMPT ----------------
 def build_prompt(context, history, question):
     return f"""
-Answer ONLY using the context below.
-If not found, say:
-"I don't know based on the provided information."
+You are CampusAI, a student assistant.
+
+RULES:
+- Answer ONLY using the context.
+- If not found, say: "I don't know based on the provided information."
+- Keep answer short and clear.
 
 Context:
 {context}
@@ -57,47 +60,50 @@ Question:
 Answer:
 """
 
+# ---------------- DISPLAY OLD CHAT ----------------
+for chat in st.session_state.chat_history:
+    st.markdown(f"🧑‍💻 {chat['user']}")
+    st.markdown(f"🤖 {chat['bot']}")
+
 # ---------------- INPUT ----------------
 user_input = st.chat_input("Ask your question...")
 
 if user_input:
     st.markdown(f"🧑‍💻 {user_input}")
 
-    # 🔥 SAFE RETRIEVAL
+    # -------- RETRIEVAL --------
     try:
-        docs = list(retriever.invoke(user_input))
+        docs = retriever.invoke(user_input)
+        context = "\n\n".join([d.page_content for d in docs])
     except Exception:
-        docs = []
+        context = "No context found."
 
-    context = "\n\n".join([d.page_content for d in docs]) if docs else "No context found."
-
-    # History
+    # -------- HISTORY --------
     history_text = "\n".join(
         [f"User: {c['user']}\nBot: {c['bot']}" for c in st.session_state.chat_history]
     )
 
     prompt = build_prompt(context, history_text, user_input)
 
-    # 🔥 SAFE LLM CALL
+    # -------- LLM (FIXED MODEL) --------
     try:
-        response = client.text_generation(
-            prompt,
-            model="google/flan-t5-base",
-            max_new_tokens=300
+        response = client.chat_completion(
+            model="HuggingFaceH4/zephyr-7b-beta",  # ✅ MUCH MORE STABLE
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=300
         )
-        cleaned = re.sub(r"<.*?>", "", response).strip()
-    except Exception:
-        cleaned = "⚠️ Error generating response. Try again."
+
+        answer = response.choices[0].message["content"]
+
+        cleaned = re.sub(r"<.*?>", "", answer).strip()
+
+    except Exception as e:
+        cleaned = f"⚠️ Error: {str(e)}"
 
     st.markdown(f"🤖 {cleaned}")
 
-    # Save history
+    # -------- SAVE --------
     st.session_state.chat_history.append({
         "user": user_input,
         "bot": cleaned
     })
-
-# ---------------- DISPLAY ----------------
-for chat in st.session_state.chat_history[:-1]:
-    st.markdown(f"🧑‍💻 {chat['user']}")
-    st.markdown(f"🤖 {chat['bot']}")
